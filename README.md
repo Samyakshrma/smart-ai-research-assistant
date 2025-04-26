@@ -72,6 +72,3 @@ streamlit run app.py
 ![Demo](images/img2.png)
 ![Demo](images/img3.png)
 
----
-
-# 🎯 Smart Research Starts Here.

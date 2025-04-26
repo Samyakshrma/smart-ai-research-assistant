@@ -25,7 +25,7 @@ if all([config.get("azure_endpoint"), config.get("azure_api_key"), config.get("a
             azure_endpoint=config["azure_endpoint"],
             azure_deployment=config["azure_chat_deployment"],
             openai_api_key=config["azure_api_key"],
-            temperature=0.3, # Low temp for factual Q&A
+            temperature=0.5, # Low temp for factual Q&A
             max_retries=2,
         )
         st.sidebar.success("Azure LLM Initialized.")
@@ -174,35 +174,57 @@ for message in st.session_state.messages[project_name]:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
+from agents.tool_agent import register_tools, decide_and_act
+from agents.agent_logic import summarize, extract_kpis, generate_report, search_web
+register_tools({
+    "summarize": summarize,
+    "extract_kpis": extract_kpis,
+    "generate_report": generate_report,
+    "search_web": search_web,
+})
+
+
+from agents.tool_agent import decide_and_act  # Import your agent function for decision-making
+
 # Accept user input
 if prompt := st.chat_input(f"Ask about '{project_name}' docs..."):
     # Add user message to project's chat history
     st.session_state.messages[project_name].append({"role": "user", "content": prompt})
-    # Display user message
+    
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # Generate and display assistant response
     with st.chat_message("assistant"):
         message_placeholder = st.empty()
         full_response = ""
 
-        if not llm:
-             full_response = "Error: LLM is not initialized. Cannot generate response."
-             st.error(full_response)
-        elif not st.session_state.retriever_ready or not st.session_state.rag_chain:
-             full_response = f"Error: Document retriever for project '{project_name}' is not ready. Please upload documents and wait for processing."
-             st.warning(full_response)
+        if not st.session_state.rag_chain:
+            full_response = "Error: RAG chain not initialized. Cannot generate response."
+            st.error(full_response)
+
+        elif not st.session_state.retriever_ready:
+            full_response = f"Error: Document retriever for project '{project_name}' is not ready. Please upload documents and wait for processing."
+            st.warning(full_response)
+
         else:
             with st.spinner("Thinking based on documents..."):
                 try:
-                    # Invoke the RAG chain
-                    response = st.session_state.rag_chain.invoke(prompt)
-                    full_response = response
+                    # First, check if an agent tool should handle it
+                    tool_response = decide_and_act(prompt, st.session_state.rag_chain)
+
+                    if tool_response:  # If a tool handled it, we show that response
+                        full_response = st.session_state.rag_chain.invoke(tool_response)
+                        print("Tool response:", tool_response)
+                    else:
+                        # Otherwise, fall back to standard RAG QA using the retriever chain
+                        rag_response = st.session_state.rag_chain.invoke(prompt)
+                        full_response = rag_response
+
                     message_placeholder.markdown(full_response)
+
                 except Exception as e:
                     full_response = f"An error occurred: {e}"
-                    st.error(full_response) # Show error in UI
+                    st.error(full_response)
 
-        # Add assistant response to project's chat history
+        # Add assistant response to the chat history
         st.session_state.messages[project_name].append({"role": "assistant", "content": full_response})

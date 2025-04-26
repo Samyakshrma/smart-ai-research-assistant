@@ -25,7 +25,7 @@ if all([config.get("azure_endpoint"), config.get("azure_api_key"), config.get("a
             azure_endpoint=config["azure_endpoint"],
             azure_deployment=config["azure_chat_deployment"],
             openai_api_key=config["azure_api_key"],
-            temperature=0, # Low temp for factual Q&A
+            temperature=0.3, # Low temp for factual Q&A
             max_retries=2,
         )
         st.sidebar.success("Azure LLM Initialized.")
@@ -57,7 +57,19 @@ if "retriever_ready" not in st.session_state:
 
 # --- Project Management Sidebar ---
 st.sidebar.header("Project Management")
-project_name_input = st.sidebar.text_input("Enter Project Name", st.session_state.current_project)
+#project_name_input = st.sidebar.text_input("Enter Project Name", st.session_state.current_project)
+st.sidebar.header("Project Management")
+
+# List all existing projects (folders inside /data)
+existing_projects = [d for d in os.listdir(VECTOR_STORE_BASE_PATH) if os.path.isdir(os.path.join(VECTOR_STORE_BASE_PATH, d))]
+
+# Let user select from existing or enter a new one
+selected_project = st.sidebar.selectbox("Select Existing Project", existing_projects, index=existing_projects.index(st.session_state.current_project) if st.session_state.current_project in existing_projects else 0) if existing_projects else None
+new_project_name = st.sidebar.text_input("Or Enter New Project Name", value=st.session_state.current_project)
+
+# Determine final project name to use
+project_name_input = new_project_name if new_project_name != selected_project else selected_project or new_project_name
+
 
 if project_name_input != st.session_state.current_project:
     st.session_state.current_project = project_name_input
@@ -78,16 +90,24 @@ if project_name not in st.session_state.messages:
 
 # --- File Upload Sidebar ---
 st.sidebar.subheader("Upload Documents")
+if "uploaded_files_processed" not in st.session_state:
+    st.session_state.uploaded_files_processed = {}
+
+# Initialize project-specific processed flag
+if project_name not in st.session_state.uploaded_files_processed:
+    st.session_state.uploaded_files_processed[project_name] = False
+
 uploaded_files = st.sidebar.file_uploader(
     "Upload PDF or TXT files to this project",
     type=["pdf", "txt"],
     accept_multiple_files=True,
-    key=f"uploader_{project_name}" # Unique key per project helps reset
+    key=f"uploader_{project_name}"  # Unique key per project helps reset uploader
 )
 
-if uploaded_files:
+if uploaded_files and not st.session_state.uploaded_files_processed[project_name]:
     file_paths = []
     all_processed_successfully = True
+
     with st.spinner(f"Processing {len(uploaded_files)} file(s) for '{project_name}'..."):
         for uploaded_file in uploaded_files:
             temp_path = os.path.join(UPLOAD_FOLDER, f"{project_name}_{uploaded_file.name}")
@@ -96,8 +116,8 @@ if uploaded_files:
                     f.write(uploaded_file.getbuffer())
                 file_paths.append(temp_path)
             except Exception as e:
-                 st.sidebar.error(f"Error saving {uploaded_file.name}: {e}")
-                 all_processed_successfully = False
+                st.sidebar.error(f"Error saving {uploaded_file.name}: {e}")
+                all_processed_successfully = False
 
         if file_paths:
             try:
@@ -106,33 +126,29 @@ if uploaded_files:
                     success = create_or_update_vector_store(project_name, loaded_docs)
                     if success:
                         st.sidebar.success(f"Processed {len(file_paths)} file(s). Project '{project_name}' updated.")
-                        st.session_state.rag_chain = None # Force reload of retriever/chain
+                        st.session_state.rag_chain = None  # Force reload of retriever/chain
                         st.session_state.retriever_ready = False
+                        st.session_state.uploaded_files_processed[project_name] = True
+                        st.rerun()
                     else:
                         st.sidebar.error("Vector store update failed. Check logs.")
                         all_processed_successfully = False
                 else:
-                     st.sidebar.warning("No text could be extracted from the uploaded files.")
-                     all_processed_successfully = False
+                    st.sidebar.warning("No text could be extracted from the uploaded files.")
+                    all_processed_successfully = False
             except Exception as e:
                 st.sidebar.error(f"Error during processing: {e}")
                 all_processed_successfully = False
             finally:
-                # Clean up temporary files
                 for p in file_paths:
                     if os.path.exists(p):
-                         try:
-                             os.remove(p)
-                         except Exception as e_rem:
-                              print(f"Warning: could not remove temp file {p}. Error: {e_rem}")
+                        try:
+                            os.remove(p)
+                        except Exception as e_rem:
+                            print(f"Warning: could not remove temp file {p}. Error: {e_rem}")
 
-        if all_processed_successfully:
-            # Use st.rerun() cautiously - it can help reset the file uploader state
-            # but might interrupt user flow if not handled well.
-            # Consider clearing uploader via session state if rerun is problematic.
-            st.rerun()
-        else:
-            st.sidebar.warning("Some files could not be processed. Check messages.")
+elif uploaded_files and st.session_state.uploaded_files_processed[project_name]:
+    st.sidebar.info("These files were already processed.")
 
 # --- Setup RAG Chain for Current Project ---
 if not st.session_state.rag_chain and llm:

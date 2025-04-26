@@ -68,9 +68,9 @@ streamlit run app.py
 ## 📷 Demo
 
 - Upload docs → Select/Create project → Ask questions → Get smart responses!
-![Alt text](images/Screenshot from 2025-04-26 12-03-32.png)
-![Alt text](images/Screenshot from 2025-04-26 15-37-18.png)
-![Alt text](images/Screenshot from 2025-04-26 15-37-28.png)
+![Demo](images/img1.png)
+![Demo](images/img2.png)
+![Demo](images/img3.png)
 
 ---
 
